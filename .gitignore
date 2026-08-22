@@ -1,5 +1,5 @@
-repowatch
-repowatch.exe
+/repowatch
+/repowatch.exe
 *.test
 dist/
 tmp/
