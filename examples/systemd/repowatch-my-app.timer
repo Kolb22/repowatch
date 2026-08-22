@@ -1,0 +1,12 @@
+[Unit]
+Description=Check my-app repository for updates
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=1s
+Unit=repowatch-my-app.service
+
+[Install]
+WantedBy=timers.target
+
