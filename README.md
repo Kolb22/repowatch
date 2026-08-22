@@ -16,6 +16,8 @@ RepoWatch does not replace GitHub Actions, Argo CD, Flux, or Kubernetes git-sync
 
 ## Install
 
+The VM needs Git, systemd, Go 1.27 or newer, and the target repository already cloned with working Git authentication.
+
 ```bash
 git clone https://github.com/Kolb22/repowatch.git
 cd repowatch
@@ -23,15 +25,19 @@ go build -o repowatch ./cmd/repowatch
 sudo install -m 0755 repowatch /usr/local/bin/repowatch
 ```
 
-Configure polling with one command:
+Install and enable polling:
 
 ```bash
-sudo repowatch install --repo /opt/my-app --interval 30s
+sudo repowatch install \
+  --repo /opt/my-app \
+  --remote origin \
+  --branch main \
+  --interval 30s
 ```
 
-By default, the service runs as the user who invoked `sudo`. Use `--user` when the repository belongs to another Linux user.
+This writes the systemd units, reloads systemd, enables and starts the timer, and prints its status. The service runs as the user who invoked `sudo`; use `--user` when the repository belongs to another Linux user.
 
-## Usage
+## Manual Sync
 
 ```bash
 repowatch sync \
@@ -77,26 +83,6 @@ systemd timer (every 30 seconds)
 ```
 
 The Go CLI remains a one-shot command. `systemd` owns scheduling and process supervision, while RepoWatch owns safe Git synchronization. No inbound VM access or GitHub Actions secrets are required.
-
-The Linux VM should have:
-
-- Git installed
-- RepoWatch installed at `/usr/local/bin/repowatch`
-- the target repository already cloned
-- Git authentication configured through SSH keys or normal Git credentials
-- systemd
-
-Install and enable polling:
-
-```bash
-sudo repowatch install \
-  --repo /opt/my-app \
-  --remote origin \
-  --branch main \
-  --interval 30s
-```
-
-`repowatch install` writes the service and timer to `/etc/systemd/system`, reloads systemd, enables and starts the timer, and prints its status.
 
 ## Development
 
