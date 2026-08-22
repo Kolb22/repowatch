@@ -60,6 +60,19 @@ sudo repowatch install \
 
 This writes the systemd units, reloads systemd, enables and starts the timer, and prints its status. The service runs as the user who invoked `sudo`; use `--user` when the repository belongs to another Linux user.
 
+### Verify the installation
+
+Set `REPO_NAME` to the target repository directory name (for example, `nodesentinel`):
+
+```bash
+REPO_NAME=my-app
+
+systemctl list-timers "repowatch-${REPO_NAME}.timer"
+sudo systemctl start "repowatch-${REPO_NAME}.service"
+sudo systemctl status "repowatch-${REPO_NAME}.service"
+journalctl -u "repowatch-${REPO_NAME}.service" -n 30 --no-pager
+```
+
 ## Manual Sync
 
 ```bash
