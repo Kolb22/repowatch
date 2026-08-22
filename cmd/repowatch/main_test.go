@@ -31,3 +31,15 @@ func TestRunSyncRequiresRepo(t *testing.T) {
 	}
 }
 
+func TestRunInstallRequiresRepo(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"install"}, &stdout, &stderr)
+	if code != int(syncpkg.ExitError) {
+		t.Fatalf("code = %d, want %d", code, syncpkg.ExitError)
+	}
+	if stderr.String() != "ERROR: --repo is required\n" {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
