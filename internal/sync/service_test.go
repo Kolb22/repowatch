@@ -13,66 +13,92 @@ const (
 )
 
 type fakeGit struct {
-	dirty       bool
-	local       string
-	remote      string
-	base        string
-	fastForward bool
+	dirty          bool
+	branch         string
+	local          string
+	remote         string
+	base           string
+	fetched        bool
+	fastForwardSHA string
 }
 
 func (f *fakeGit) ValidateRepository(context.Context, string, string) error { return nil }
+func (f *fakeGit) CurrentBranch(context.Context, string) (string, error)    { return f.branch, nil }
 func (f *fakeGit) IsDirty(context.Context, string) (bool, error)            { return f.dirty, nil }
-func (f *fakeGit) Fetch(context.Context, string, string, string) error      { return nil }
-func (f *fakeGit) Head(context.Context, string) (string, error)             { return f.local, nil }
+func (f *fakeGit) Fetch(context.Context, string, string, string) error {
+	f.fetched = true
+	return nil
+}
+func (f *fakeGit) Head(context.Context, string) (string, error) { return f.local, nil }
 func (f *fakeGit) RemoteHead(context.Context, string, string, string) (string, error) {
 	return f.remote, nil
 }
 func (f *fakeGit) MergeBase(context.Context, string, string, string) (string, error) {
 	return f.base, nil
 }
-func (f *fakeGit) FastForward(context.Context, string, string, string) error {
-	f.fastForward = true
+func (f *fakeGit) FastForward(_ context.Context, _ string, targetSHA string) error {
+	f.fastForwardSHA = targetSHA
 	return nil
 }
 
 func TestServiceSyncStates(t *testing.T) {
 	tests := []struct {
-		name              string
-		git               *fakeGit
-		wantState         State
-		wantCode          ExitCode
-		wantFastForwarded bool
+		name               string
+		git                *fakeGit
+		wantState          State
+		wantCode           ExitCode
+		wantFastForwardSHA string
+		wantFetched        bool
+		wantReason         string
 	}{
 		{
-			name:      "up to date",
-			git:       &fakeGit{local: localSHA, remote: localSHA},
-			wantState: StateUpToDate,
-			wantCode:  ExitOK,
+			name:        "up to date",
+			git:         &fakeGit{branch: "main", local: localSHA, remote: localSHA},
+			wantState:   StateUpToDate,
+			wantCode:    ExitOK,
+			wantFetched: true,
 		},
 		{
-			name:              "behind fast forwards",
-			git:               &fakeGit{local: localSHA, remote: remoteSHA, base: localSHA},
-			wantState:         StateBehind,
-			wantCode:          ExitOK,
-			wantFastForwarded: true,
+			name:               "behind fast forwards to inspected SHA",
+			git:                &fakeGit{branch: "main", local: localSHA, remote: remoteSHA, base: localSHA},
+			wantState:          StateBehind,
+			wantCode:           ExitOK,
+			wantFastForwardSHA: remoteSHA,
+			wantFetched:        true,
 		},
 		{
-			name:      "ahead aborts",
-			git:       &fakeGit{local: localSHA, remote: remoteSHA, base: remoteSHA},
-			wantState: StateAhead,
-			wantCode:  ExitAhead,
+			name:        "ahead aborts",
+			git:         &fakeGit{branch: "main", local: localSHA, remote: remoteSHA, base: remoteSHA},
+			wantState:   StateAhead,
+			wantCode:    ExitAhead,
+			wantFetched: true,
 		},
 		{
-			name:      "diverged aborts",
-			git:       &fakeGit{local: localSHA, remote: remoteSHA, base: "3333333333333333333333333333333333333333"},
-			wantState: StateDiverged,
-			wantCode:  ExitDiverged,
+			name:        "diverged aborts",
+			git:         &fakeGit{branch: "main", local: localSHA, remote: remoteSHA, base: "3333333333333333333333333333333333333333"},
+			wantState:   StateDiverged,
+			wantCode:    ExitDiverged,
+			wantFetched: true,
 		},
 		{
 			name:      "dirty aborts before fetch",
-			git:       &fakeGit{dirty: true},
+			git:       &fakeGit{branch: "main", dirty: true},
 			wantState: StateDirty,
 			wantCode:  ExitDirty,
+		},
+		{
+			name:       "wrong branch aborts before fetch",
+			git:        &fakeGit{branch: "develop"},
+			wantState:  StateWrongBranch,
+			wantCode:   ExitWrongBranch,
+			wantReason: `current branch "develop" does not match configured branch "main"`,
+		},
+		{
+			name:       "detached head aborts before fetch",
+			git:        &fakeGit{},
+			wantState:  StateWrongBranch,
+			wantCode:   ExitWrongBranch,
+			wantReason: `detached HEAD does not match configured branch "main"`,
 		},
 	}
 
@@ -94,8 +120,14 @@ func TestServiceSyncStates(t *testing.T) {
 			if got := CodeFor(result, nil); got != tt.wantCode {
 				t.Fatalf("exit code = %d, want %d", got, tt.wantCode)
 			}
-			if tt.git.fastForward != tt.wantFastForwarded {
-				t.Fatalf("fastForward = %v, want %v", tt.git.fastForward, tt.wantFastForwarded)
+			if tt.git.fastForwardSHA != tt.wantFastForwardSHA {
+				t.Fatalf("fast-forward SHA = %q, want %q", tt.git.fastForwardSHA, tt.wantFastForwardSHA)
+			}
+			if tt.git.fetched != tt.wantFetched {
+				t.Fatalf("fetched = %v, want %v", tt.git.fetched, tt.wantFetched)
+			}
+			if tt.wantReason != "" && result.Reason != tt.wantReason {
+				t.Fatalf("reason = %q, want %q", result.Reason, tt.wantReason)
 			}
 		})
 	}

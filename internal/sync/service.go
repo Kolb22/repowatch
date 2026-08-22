@@ -9,31 +9,34 @@ import (
 type State string
 
 const (
-	StateUpToDate State = "UP_TO_DATE"
-	StateBehind   State = "BEHIND"
-	StateAhead    State = "AHEAD"
-	StateDiverged State = "DIVERGED"
-	StateDirty    State = "DIRTY"
+	StateUpToDate    State = "UP_TO_DATE"
+	StateBehind      State = "BEHIND"
+	StateAhead       State = "AHEAD"
+	StateDiverged    State = "DIVERGED"
+	StateDirty       State = "DIRTY"
+	StateWrongBranch State = "WRONG_BRANCH"
 )
 
 type ExitCode int
 
 const (
-	ExitOK       ExitCode = 0
-	ExitError    ExitCode = 1
-	ExitDirty    ExitCode = 2
-	ExitAhead    ExitCode = 3
-	ExitDiverged ExitCode = 4
+	ExitOK          ExitCode = 0
+	ExitError       ExitCode = 1
+	ExitDirty       ExitCode = 2
+	ExitAhead       ExitCode = 3
+	ExitDiverged    ExitCode = 4
+	ExitWrongBranch ExitCode = 5
 )
 
 type GitClient interface {
 	ValidateRepository(ctx context.Context, repo string, remote string) error
+	CurrentBranch(ctx context.Context, repo string) (string, error)
 	IsDirty(ctx context.Context, repo string) (bool, error)
 	Fetch(ctx context.Context, repo string, remote string, branch string) error
 	Head(ctx context.Context, repo string) (string, error)
 	RemoteHead(ctx context.Context, repo string, remote string, branch string) (string, error)
 	MergeBase(ctx context.Context, repo string, left string, right string) (string, error)
-	FastForward(ctx context.Context, repo string, remote string, branch string) error
+	FastForward(ctx context.Context, repo string, targetSHA string) error
 }
 
 type Options struct {
@@ -79,6 +82,20 @@ func (s *Service) Sync(parent context.Context, opts Options) (Result, error) {
 	if err := s.git.ValidateRepository(ctx, opts.Repository, opts.Remote); err != nil {
 		return result, fmt.Errorf("validate repository: %w", err)
 	}
+	currentBranch, err := s.git.CurrentBranch(ctx, opts.Repository)
+	if err != nil {
+		return result, err
+	}
+	if currentBranch == "" {
+		result.State = StateWrongBranch
+		result.Reason = fmt.Sprintf("detached HEAD does not match configured branch %q", opts.Branch)
+		return result, nil
+	}
+	if currentBranch != opts.Branch {
+		result.State = StateWrongBranch
+		result.Reason = fmt.Sprintf("current branch %q does not match configured branch %q", currentBranch, opts.Branch)
+		return result, nil
+	}
 
 	dirty, err := s.git.IsDirty(ctx, opts.Repository)
 	if err != nil {
@@ -119,7 +136,7 @@ func (s *Service) Sync(parent context.Context, opts Options) (Result, error) {
 	switch base {
 	case local:
 		result.State = StateBehind
-		if err := s.git.FastForward(ctx, opts.Repository, opts.Remote, opts.Branch); err != nil {
+		if err := s.git.FastForward(ctx, opts.Repository, remote); err != nil {
 			return result, err
 		}
 		result.State = StateBehind
@@ -148,6 +165,8 @@ func CodeFor(result Result, err error) ExitCode {
 		return ExitAhead
 	case StateDiverged:
 		return ExitDiverged
+	case StateWrongBranch:
+		return ExitWrongBranch
 	default:
 		return ExitOK
 	}

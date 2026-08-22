@@ -44,6 +44,14 @@ func (c *Client) IsDirty(ctx context.Context, repo string) (bool, error) {
 	return strings.TrimSpace(out) != "", nil
 }
 
+func (c *Client) CurrentBranch(ctx context.Context, repo string) (string, error) {
+	out, err := c.run(ctx, repo, "branch", "--show-current")
+	if err != nil {
+		return "", fmt.Errorf("determine current branch: %w", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
 func (c *Client) Fetch(ctx context.Context, repo string, remote string, branch string) error {
 	if _, err := c.run(ctx, repo, "fetch", remote, branch); err != nil {
 		return fmt.Errorf("fetch %s/%s: %w", remote, branch, err)
@@ -71,9 +79,12 @@ func (c *Client) MergeBase(ctx context.Context, repo string, left string, right 
 	return sha, nil
 }
 
-func (c *Client) FastForward(ctx context.Context, repo string, remote string, branch string) error {
-	if _, err := c.run(ctx, repo, "pull", "--ff-only", remote, branch); err != nil {
-		return fmt.Errorf("fast-forward %s/%s: %w", remote, branch, err)
+func (c *Client) FastForward(ctx context.Context, repo string, targetSHA string) error {
+	if !IsSHA(targetSHA) {
+		return fmt.Errorf("invalid fast-forward target SHA: %q", targetSHA)
+	}
+	if _, err := c.run(ctx, repo, "merge", "--ff-only", targetSHA); err != nil {
+		return fmt.Errorf("fast-forward to %s: %w", short(targetSHA), err)
 	}
 	return nil
 }

@@ -16,7 +16,26 @@ RepoWatch does not replace GitHub Actions, Argo CD, Flux, or Kubernetes git-sync
 
 ## Install
 
-The VM needs Git, systemd, Go 1.27 or newer, and the target repository already cloned with working Git authentication.
+The VM needs Git, systemd, and the target repository already cloned with working Git authentication.
+
+### Download a release
+
+Set the release version and architecture (`amd64` for `x86_64`, `arm64` for `aarch64`):
+
+```bash
+VERSION=v0.1.0
+ARCH=amd64
+BINARY=repowatch-linux-${ARCH}
+
+curl -fLO "https://github.com/Kolb22/repowatch/releases/download/${VERSION}/${BINARY}"
+curl -fLO "https://github.com/Kolb22/repowatch/releases/download/${VERSION}/SHA256SUMS"
+grep " ${BINARY}$" SHA256SUMS | sha256sum --check
+sudo install -m 0755 "${BINARY}" /usr/local/bin/repowatch
+```
+
+### Build from source
+
+This option requires Go 1.27 or newer.
 
 ```bash
 git clone https://github.com/Kolb22/repowatch.git
@@ -65,12 +84,15 @@ Flags:
 | 2 | Dirty working tree |
 | 3 | Local repository is ahead |
 | 4 | Local and remote histories diverged |
+| 5 | Wrong branch or detached HEAD |
 
 ## Safety
 
-RepoWatch never runs destructive Git commands automatically. It does not reset, clean, stash, merge, rebase, or force-pull.
+RepoWatch verifies that the configured branch is checked out before fetching. A different branch or detached HEAD is refused.
 
-When the local repository is dirty, ahead, or diverged, RepoWatch stops and returns a non-zero exit code.
+After fetching, RepoWatch evaluates the remote commit and fast-forwards only to that exact SHA with `git merge --ff-only`. It never runs destructive Git recovery automatically: no reset, clean, stash, rebase, force checkout, or force pull.
+
+When the local repository is dirty, ahead, diverged, or on the wrong branch, RepoWatch stops and returns a non-zero exit code.
 
 ## Polling With systemd
 

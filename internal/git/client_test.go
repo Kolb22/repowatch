@@ -108,6 +108,13 @@ func TestClientWithLocalRepositories(t *testing.T) {
 	if err := client.ValidateRepository(ctx, clone, "origin"); err != nil {
 		t.Fatalf("ValidateRepository returned error: %v", err)
 	}
+	branch, err := client.CurrentBranch(ctx, clone)
+	if err != nil {
+		t.Fatalf("CurrentBranch returned error: %v", err)
+	}
+	if branch != "main" {
+		t.Fatalf("branch = %q, want main", branch)
+	}
 
 	dirty, err := client.IsDirty(ctx, clone)
 	if err != nil {
@@ -137,6 +144,51 @@ func TestClientWithLocalRepositories(t *testing.T) {
 		t.Fatalf("base = %s, want %s", base, head)
 	}
 
+	mustWrite(t, filepath.Join(work, "remote-a.txt"), "commit A\n")
+	runGit(t, work, "add", "remote-a.txt")
+	runGit(t, work, "commit", "-m", "remote commit A")
+	runGit(t, work, "push", "origin", "main")
+	if err := client.Fetch(ctx, clone, "origin", "main"); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	targetSHA, err := client.RemoteHead(ctx, clone, "origin", "main")
+	if err != nil {
+		t.Fatalf("RemoteHead after fetch returned error: %v", err)
+	}
+
+	mustWrite(t, filepath.Join(work, "remote-b.txt"), "commit B\n")
+	runGit(t, work, "add", "remote-b.txt")
+	runGit(t, work, "commit", "-m", "remote commit B")
+	runGit(t, work, "push", "origin", "main")
+	newerRemoteSHA := gitOutput(t, work, "rev-parse", "HEAD")
+	if newerRemoteSHA == targetSHA {
+		t.Fatal("second remote commit did not advance HEAD")
+	}
+
+	if err := client.FastForward(ctx, clone, targetSHA); err != nil {
+		t.Fatalf("FastForward returned error: %v", err)
+	}
+	updatedHead, err := client.Head(ctx, clone)
+	if err != nil {
+		t.Fatalf("Head after FastForward returned error: %v", err)
+	}
+	if updatedHead != targetSHA {
+		t.Fatalf("updated HEAD = %s, want inspected target %s", updatedHead, targetSHA)
+	}
+	if updatedHead == newerRemoteSHA {
+		t.Fatal("fast-forward unexpectedly used the newer, uninspected remote commit")
+	}
+
+	runGit(t, clone, "checkout", "--detach", targetSHA)
+	branch, err = client.CurrentBranch(ctx, clone)
+	if err != nil {
+		t.Fatalf("CurrentBranch for detached HEAD returned error: %v", err)
+	}
+	if branch != "" {
+		t.Fatalf("detached branch = %q, want empty", branch)
+	}
+	runGit(t, clone, "switch", "main")
+
 	mustWrite(t, filepath.Join(clone, "local.txt"), "dirty\n")
 	dirty, err = client.IsDirty(ctx, clone)
 	if err != nil {
@@ -155,6 +207,17 @@ func runGit(t *testing.T, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, output)
 	}
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, output)
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func mustWrite(t *testing.T, path string, content string) {
