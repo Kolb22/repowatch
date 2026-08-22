@@ -28,15 +28,23 @@ jobs:
           cd dist
           sha256sum repowatch-linux-amd64 repowatch-linux-arm64 > SHA256SUMS
 
-      - name: Create GitHub Release
+      - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            dist/repowatch-linux-amd64 \
-            dist/repowatch-linux-arm64 \
-            dist/SHA256SUMS \
-            --verify-tag \
-            --generate-notes \
-            --title "${GITHUB_REF_NAME}"
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" \
+              dist/repowatch-linux-amd64 \
+              dist/repowatch-linux-arm64 \
+              dist/SHA256SUMS \
+              --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              dist/repowatch-linux-amd64 \
+              dist/repowatch-linux-arm64 \
+              dist/SHA256SUMS \
+              --verify-tag \
+              --generate-notes \
+              --title "${GITHUB_REF_NAME}"
+          fi
 
