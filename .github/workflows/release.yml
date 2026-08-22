@@ -20,13 +20,34 @@ jobs:
         with:
           go-version: "1.27.0"
 
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
       - name: Build Linux binaries
         run: |
           mkdir -p dist
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o dist/repowatch-linux-amd64 ./cmd/repowatch
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o dist/repowatch-linux-arm64 ./cmd/repowatch
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath \
+            -o dist/repowatch-linux-amd64 \
+            ./cmd/repowatch
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -trimpath \
+            -o dist/repowatch-linux-arm64 \
+            ./cmd/repowatch
+
           cd dist
-          sha256sum repowatch-linux-amd64 repowatch-linux-arm64 > SHA256SUMS
+          sha256sum \
+            repowatch-linux-amd64 \
+            repowatch-linux-arm64 \
+            > SHA256SUMS
 
       - name: Publish release assets
         env:
@@ -47,4 +68,3 @@ jobs:
               --generate-notes \
               --title "${GITHUB_REF_NAME}"
           fi
-
