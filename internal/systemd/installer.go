@@ -203,4 +203,3 @@ Unit=%s
 WantedBy=timers.target
 `, seconds, serviceName)
 }
-

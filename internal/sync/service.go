@@ -171,4 +171,3 @@ func CodeFor(result Result, err error) ExitCode {
 		return ExitOK
 	}
 }
-

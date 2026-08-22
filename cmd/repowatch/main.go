@@ -187,4 +187,3 @@ func abbreviate(sha string) string {
 	}
 	return sha[:7]
 }
-

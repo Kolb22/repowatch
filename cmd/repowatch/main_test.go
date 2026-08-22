@@ -42,4 +42,3 @@ func TestRunInstallRequiresRepo(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
-

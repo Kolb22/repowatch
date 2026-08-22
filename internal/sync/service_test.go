@@ -138,4 +138,3 @@ func TestCodeForError(t *testing.T) {
 		t.Fatalf("CodeFor error = %d, want %d", got, ExitError)
 	}
 }
-

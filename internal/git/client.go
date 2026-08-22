@@ -132,4 +132,3 @@ func short(sha string) string {
 	}
 	return sha[:7]
 }
-

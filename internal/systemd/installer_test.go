@@ -96,4 +96,3 @@ func TestNormalizeName(t *testing.T) {
 		t.Fatalf("NormalizeName() = %q", got)
 	}
 }
-

@@ -69,4 +69,3 @@ func (r ExecRunner) Run(ctx context.Context, dir string, command string, args ..
 	result.ExitCode = -1
 	return result, fmt.Errorf("start %s: %w", command, err)
 }
-
