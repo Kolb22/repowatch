@@ -2,53 +2,84 @@
 
 RepoWatch is a small Go CLI that safely synchronizes a local Git repository with a configured remote branch.
 
-It is built for a common workflow:
+It is designed for a simple workflow:
 
 ```text
-develop on Windows
+develop locally
 push to GitHub
 systemd timer runs on the Linux VM
 RepoWatch checks the configured Git remote
-RepoWatch fast-forwards the local repo when safe
+RepoWatch fast-forwards the local repository when safe
 ```
 
-RepoWatch does not replace GitHub Actions, Argo CD, Flux, or Kubernetes git-sync. Its job is intentionally narrow: inspect one local repository and fast-forward it only when the repository is clean and the remote history is safe.
+RepoWatch does not replace GitHub Actions, Argo CD, Flux, or Kubernetes git-sync.
+
+Its purpose is intentionally narrow: manage local Git synchronization on Linux while refusing unsafe updates.
+
+## Features
+
+* Safe Git synchronization using fast-forward only
+* Detects dirty working trees
+* Detects local commits ahead of the remote
+* Detects diverged histories
+* Verifies the configured branch is currently checked out
+* Refuses synchronization on detached HEAD
+* Updates only to the exact remote commit that was inspected
+* systemd timer installation and management
+* Multiple independent repository installations
+* Precompiled Linux binaries for AMD64 and ARM64
+* SHA-256 release checksums
+* Dedicated exit codes for automation and monitoring
 
 ## Install
 
-The VM needs Git, systemd, and the target repository already cloned with working Git authentication.
+The Linux machine needs:
 
-### Download a release
+* Git
+* systemd
+* The target repository already cloned
+* Working Git authentication for the configured remote
 
-Set the release version. Debian detects the architecture automatically (`amd64` for `x86_64`, `arm64` for `aarch64`):
+### Download the latest release
+
+Debian and Ubuntu can detect the current architecture automatically:
 
 ```bash
 cd /tmp
 
-VERSION=v0.1.1
 ARCH=$(dpkg --print-architecture)
 BINARY=repowatch-linux-${ARCH}
 
-curl -fLO "https://github.com/Kolb22/repowatch/releases/download/${VERSION}/${BINARY}"
-curl -fLO "https://github.com/Kolb22/repowatch/releases/download/${VERSION}/SHA256SUMS"
+curl -fLO "https://github.com/Kolb22/repowatch/releases/latest/download/${BINARY}"
+curl -fLO "https://github.com/Kolb22/repowatch/releases/latest/download/SHA256SUMS"
 
 grep " ${BINARY}$" SHA256SUMS | sha256sum --check
 
 sudo install -m 0755 "${BINARY}" /usr/local/bin/repowatch
 ```
 
+Verify the installation:
+
+```bash
+repowatch --help
+```
+
 ### Build from source
 
-This option requires Go 1.27 or newer.
+Building from source requires Go 1.27 or newer.
 
 ```bash
 git clone https://github.com/Kolb22/repowatch.git
 cd repowatch
+
 go build -o repowatch ./cmd/repowatch
+
 sudo install -m 0755 repowatch /usr/local/bin/repowatch
 ```
 
-Install and enable polling:
+## Configure automatic synchronization
+
+Install a systemd service and timer:
 
 ```bash
 sudo repowatch install \
@@ -58,40 +89,91 @@ sudo repowatch install \
   --interval 30s
 ```
 
-This writes the systemd units, reloads systemd, enables and starts the timer, and prints its status. The service runs as the user who invoked `sudo`; use `--user` when the repository belongs to another Linux user.
+This creates the required systemd units, reloads systemd, enables the timer, and starts polling.
 
-### Verify the installation
+The service runs as the user who invoked `sudo`. Use `--user` when the repository belongs to another Linux user.
 
-Set `REPO_NAME` to the target repository directory name (for example, `nodesentinel`):
+Example:
+
+```bash
+sudo repowatch install \
+  --repo /home/deploy/my-app \
+  --branch main \
+  --interval 30s \
+  --user deploy
+```
+
+## Verify the systemd installation
+
+Set the repository name:
 
 ```bash
 REPO_NAME=my-app
-
-systemctl list-timers "repowatch-${REPO_NAME}.timer"
-sudo systemctl start "repowatch-${REPO_NAME}.service"
-sudo systemctl status "repowatch-${REPO_NAME}.service"
-journalctl -u "repowatch-${REPO_NAME}.service" -n 30 --no-pager
 ```
 
-### Manage installations
+Check the timer:
 
-List every repository currently managed by RepoWatch:
+```bash
+systemctl list-timers "repowatch-${REPO_NAME}.timer"
+```
+
+Run synchronization manually through systemd:
+
+```bash
+sudo systemctl start "repowatch-${REPO_NAME}.service"
+```
+
+Inspect its status:
+
+```bash
+sudo systemctl status "repowatch-${REPO_NAME}.service"
+```
+
+Inspect recent logs:
+
+```bash
+journalctl \
+  -u "repowatch-${REPO_NAME}.service" \
+  -n 30 \
+  --no-pager
+```
+
+## Manage installations
+
+RepoWatch can manage multiple repositories through independent systemd services and timers.
+
+List managed repositories:
 
 ```bash
 repowatch list
 ```
 
-Installations are independent, so you can run `repowatch install` once for each repository with a different branch, interval, or Linux user.
+Example:
 
-Stop polling and remove an installation by repository name:
+```text
+NAME          SERVICE                         TIMER
+my-app        repowatch-my-app.service        repowatch-my-app.timer
+nodesentinel  repowatch-nodesentinel.service  repowatch-nodesentinel.timer
+```
+
+Remove one RepoWatch installation:
 
 ```bash
 sudo repowatch uninstall my-app
 ```
 
-This disables the timer and removes only the matching systemd service and timer. It never removes the repository or any files inside it.
+This disables the associated timer and removes only:
 
-## Manual Sync
+```text
+repowatch-my-app.service
+repowatch-my-app.timer
+```
+
+The Git repository and its files are never removed.
+
+## Manual synchronization
+
+RepoWatch can also run without systemd:
 
 ```bash
 repowatch sync \
@@ -100,48 +182,168 @@ repowatch sync \
   --branch main
 ```
 
-Flags:
+### Sync flags
 
-| Flag | Default | Description |
-|---|---|---|
-| `--repo` | required | Path to the local Git repository |
-| `--remote` | `origin` | Git remote |
-| `--branch` | `main` | Remote branch |
-| `--timeout` | `30s` | Maximum time allowed for Git operations |
-| `--quiet` | `false` | Suppress successful output |
+| Flag        | Default  | Description                             |
+| ----------- | -------- | --------------------------------------- |
+| `--repo`    | required | Path to the local Git repository        |
+| `--remote`  | `origin` | Git remote                              |
+| `--branch`  | `main`   | Branch to synchronize                   |
+| `--timeout` | `30s`    | Maximum time allowed for Git operations |
+| `--quiet`   | `false`  | Suppress successful output              |
 
-## Exit Codes
+## Synchronization behavior
 
-| Code | Meaning |
-|---:|---|
-| 0 | Up to date or successfully updated |
-| 1 | Operational or internal error |
-| 2 | Dirty working tree |
-| 3 | Local repository is ahead |
-| 4 | Local and remote histories diverged |
-| 5 | Wrong branch or detached HEAD |
+RepoWatch evaluates the repository before making any update.
+
+```text
+Validate repository
+        |
+        v
+Verify current branch
+        |
+        v
+Check working tree
+        |
+        v
+Fetch configured remote branch
+        |
+        v
+Compare local and remote commits
+        |
+        v
+Determine Git history relationship
+        |
+        v
+Fast-forward to inspected SHA
+```
+
+Possible states include:
+
+```text
+UP_TO_DATE
+BEHIND
+AHEAD
+DIVERGED
+DIRTY
+WRONG_BRANCH
+```
+
+When the repository is safely behind the remote, RepoWatch updates it using:
+
+```bash
+git merge --ff-only <inspected-remote-sha>
+```
+
+The SHA used for the update is the exact commit that RepoWatch evaluated after fetching.
+
+RepoWatch does not run another network fetch between the safety decision and the local fast-forward.
+
+## Exit codes
+
+| Code | Meaning                             |
+| ---: | ----------------------------------- |
+|  `0` | Up to date or successfully updated  |
+|  `1` | Operational or internal error       |
+|  `2` | Dirty working tree                  |
+|  `3` | Local repository is ahead           |
+|  `4` | Local and remote histories diverged |
+|  `5` | Wrong branch or detached HEAD       |
+
+These exit codes make RepoWatch suitable for systemd, scripts, monitoring, and other automation.
 
 ## Safety
 
-RepoWatch verifies that the configured branch is checked out before fetching. A different branch or detached HEAD is refused.
+RepoWatch is intentionally conservative.
 
-After fetching, RepoWatch evaluates the remote commit and fast-forwards only to that exact SHA with `git merge --ff-only`. It never runs destructive Git recovery automatically: no reset, clean, stash, rebase, force checkout, or force pull.
+Synchronization stops when:
 
-When the local repository is dirty, ahead, diverged, or on the wrong branch, RepoWatch stops and returns a non-zero exit code.
+* The working tree contains local changes
+* The checked-out branch does not match the configured branch
+* HEAD is detached
+* The local repository contains commits not present remotely
+* Local and remote histories have diverged
 
-## Polling With systemd
+RepoWatch never automatically runs destructive Git recovery commands.
 
-The recommended deployment setup is:
+It does not use:
 
 ```text
-systemd timer (every 30 seconds)
-    -> repowatch-my-app.service
-    -> repowatch sync
+git reset --hard
+git clean
+git stash
+git rebase
+git checkout --force
+git pull --force
 ```
 
-The Go CLI remains a one-shot command. `systemd` owns scheduling and process supervision, while RepoWatch owns safe Git synchronization. No inbound VM access or GitHub Actions secrets are required.
+It also never discards local changes or creates merge commits automatically.
+
+## Polling with systemd
+
+The normal deployment model is:
+
+```text
+systemd timer
+      |
+      v
+repowatch-<name>.service
+      |
+      v
+repowatch sync
+      |
+      v
+Git repository
+```
+
+RepoWatch remains a one-shot process.
+
+systemd is responsible for:
+
+* Scheduling
+* Process lifecycle
+* Logging
+* Service supervision
+
+RepoWatch is responsible for:
+
+* Repository validation
+* Git state inspection
+* Safety decisions
+* Fast-forward synchronization
+
+No inbound VM access, webhook server, or GitHub Actions deployment secret is required.
+
+## Architecture
+
+```text
+cmd/repowatch
+    CLI parsing
+    commands
+    output
+    exit codes
+
+internal/git
+    Git CLI wrapper
+    process execution
+    repository inspection
+
+internal/sync
+    synchronization state machine
+    safety decisions
+
+internal/systemd
+    systemd unit generation
+    installation
+    listing
+    removal
+```
+
+The project intentionally uses the Go standard library and delegates Git operations to the installed Git executable.
 
 ## Development
+
+Run all local checks:
 
 ```bash
 gofmt -w .
@@ -150,23 +352,48 @@ go test ./...
 go build ./...
 ```
 
-## Architecture
+GitHub Actions runs formatting validation, static analysis, tests, and builds automatically.
+
+## Releases
+
+Version tags trigger the release workflow.
+
+Example:
+
+```bash
+git tag v0.1.2
+git push origin v0.1.2
+```
+
+GitHub Actions builds:
 
 ```text
-cmd/repowatch
-    CLI parsing, output, exit codes
-
-internal/git
-    process runner and Git CLI wrapper
-
-internal/sync
-    synchronization state machine
-
-internal/systemd
-    polling unit generation and installation
+repowatch-linux-amd64
+repowatch-linux-arm64
+SHA256SUMS
 ```
+
+and attaches them to the corresponding GitHub Release.
 
 ## Limitations
 
-RepoWatch synchronizes one repository per service invocation. Multiple repositories are supported through independent systemd services and timers. It does not run as a daemon, receive webhooks, deploy applications, execute post-sync commands, or manage rollback.
+RepoWatch synchronizes one repository per service invocation.
+
+Multiple repositories are supported by creating independent systemd installations.
+
+RepoWatch currently does not:
+
+* Run as a daemon
+* Receive webhooks
+* Deploy applications
+* Execute post-sync commands
+* Manage rollback
+* Resolve merge conflicts
+* Automatically recover unsafe Git states
+
+These limitations are intentional. RepoWatch focuses only on safe repository synchronization.
+
+## License
+
+MIT
 
