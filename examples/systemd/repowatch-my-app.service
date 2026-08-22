@@ -6,5 +6,6 @@ After=network-online.target
 [Service]
 Type=oneshot
 User=repowatch
-ExecStart=/usr/bin/flock -n /run/repowatch-my-app.lock /usr/local/bin/repowatch sync --repo /opt/my-app --remote origin --branch main
+RuntimeDirectory=repowatch
+ExecStart=/usr/bin/flock -n /run/repowatch/my-app.lock /usr/local/bin/repowatch sync --repo /opt/my-app --remote origin --branch main
 
