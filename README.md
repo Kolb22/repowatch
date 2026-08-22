@@ -20,16 +20,20 @@ The VM needs Git, systemd, and the target repository already cloned with working
 
 ### Download a release
 
-Set the release version and architecture (`amd64` for `x86_64`, `arm64` for `aarch64`):
+Set the release version. Debian detects the architecture automatically (`amd64` for `x86_64`, `arm64` for `aarch64`):
 
 ```bash
-VERSION=v0.1.0
-ARCH=amd64
+cd /tmp
+
+VERSION=v0.1.1
+ARCH=$(dpkg --print-architecture)
 BINARY=repowatch-linux-${ARCH}
 
 curl -fLO "https://github.com/Kolb22/repowatch/releases/download/${VERSION}/${BINARY}"
 curl -fLO "https://github.com/Kolb22/repowatch/releases/download/${VERSION}/SHA256SUMS"
+
 grep " ${BINARY}$" SHA256SUMS | sha256sum --check
+
 sudo install -m 0755 "${BINARY}" /usr/local/bin/repowatch
 ```
 
