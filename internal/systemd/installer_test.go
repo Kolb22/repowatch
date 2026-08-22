@@ -96,3 +96,86 @@ func TestNormalizeName(t *testing.T) {
 		t.Fatalf("NormalizeName() = %q", got)
 	}
 }
+
+func TestInstallerListsInstallationsByName(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{
+		"repowatch-zeta.timer",
+		"repowatch-alpha.timer",
+		"repowatch-alpha.service",
+		"unrelated.timer",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("unit"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	installations, err := NewInstaller(&fakeRunner{}, dir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(installations) != 2 {
+		t.Fatalf("installations = %#v", installations)
+	}
+	if installations[0].Name != "alpha" || installations[1].Name != "zeta" {
+		t.Fatalf("installations are not sorted: %#v", installations)
+	}
+}
+
+func TestInstallerUninstallRemovesOnlyUnits(t *testing.T) {
+	runner := &fakeRunner{}
+	dir := t.TempDir()
+	repository := filepath.Join(dir, "nodesentinel")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repositoryFile := filepath.Join(repository, "keep.txt")
+	if err := os.WriteFile(repositoryFile, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"repowatch-nodesentinel.service",
+		"repowatch-nodesentinel.timer",
+		"unrelated.service",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("unit"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := NewInstaller(runner, dir).Uninstall(context.Background(), "nodesentinel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ServiceName != "repowatch-nodesentinel.service" || result.TimerName != "repowatch-nodesentinel.timer" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	for _, name := range []string{result.ServiceName, result.TimerName} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s was not removed", name)
+		}
+	}
+	for _, name := range []string{repositoryFile, filepath.Join(dir, "unrelated.service")} {
+		if _, err := os.Stat(name); err != nil {
+			t.Fatalf("unrelated file %s was changed: %v", name, err)
+		}
+	}
+
+	wantCalls := []string{
+		"systemctl disable --now repowatch-nodesentinel.timer",
+		"systemctl daemon-reload",
+	}
+	if strings.Join(runner.calls, "\n") != strings.Join(wantCalls, "\n") {
+		t.Fatalf("calls = %#v, want %#v", runner.calls, wantCalls)
+	}
+}
+
+func TestInstallerUninstallRejectsUnsafeName(t *testing.T) {
+	runner := &fakeRunner{}
+	if _, err := NewInstaller(runner, t.TempDir()).Uninstall(context.Background(), "../nodesentinel"); err == nil {
+		t.Fatal("expected validation error")
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("unexpected calls: %#v", runner.calls)
+	}
+}

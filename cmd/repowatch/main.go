@@ -31,6 +31,10 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runSync(args[1:], stdout, stderr)
 	case "install":
 		return runInstall(args[1:], stdout, stderr)
+	case "list":
+		return runList(stdout, stderr)
+	case "uninstall":
+		return runUninstall(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return 0
@@ -39,6 +43,61 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		printUsage(stderr)
 		return int(syncpkg.ExitError)
 	}
+}
+
+func runList(stdout io.Writer, stderr io.Writer) int {
+	if runtime.GOOS != "linux" {
+		fmt.Fprintln(stderr, "ERROR: repowatch list is only supported on Linux")
+		return int(syncpkg.ExitError)
+	}
+
+	installer := systemdpkg.NewInstaller(systemdpkg.ExecRunner{}, "/etc/systemd/system")
+	installations, err := installer.List()
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR: %v\n", err)
+		return int(syncpkg.ExitError)
+	}
+	if len(installations) == 0 {
+		fmt.Fprintln(stdout, "No RepoWatch installations found.")
+		return int(syncpkg.ExitOK)
+	}
+
+	fmt.Fprintln(stdout, "NAME\tSERVICE\tTIMER")
+	for _, installation := range installations {
+		fmt.Fprintf(stdout, "%s\t%s\t%s\n", installation.Name, installation.ServiceName, installation.TimerName)
+	}
+	return int(syncpkg.ExitOK)
+}
+
+func runUninstall(args []string, stdout io.Writer, stderr io.Writer) int {
+	fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args); err != nil {
+		return int(syncpkg.ExitError)
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "ERROR: repository name is required")
+		fmt.Fprintln(stderr, "usage: sudo repowatch uninstall NAME")
+		return int(syncpkg.ExitError)
+	}
+	if runtime.GOOS != "linux" {
+		fmt.Fprintln(stderr, "ERROR: repowatch uninstall is only supported on Linux")
+		return int(syncpkg.ExitError)
+	}
+
+	installer := systemdpkg.NewInstaller(systemdpkg.ExecRunner{}, "/etc/systemd/system")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	result, err := installer.Uninstall(ctx, fs.Arg(0))
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR: %v\n", err)
+		fmt.Fprintln(stderr, "Hint: run this command with sudo.")
+		return int(syncpkg.ExitError)
+	}
+
+	fmt.Fprintf(stdout, "Uninstalled: %s and %s\n", result.ServiceName, result.TimerName)
+	fmt.Fprintln(stdout, "Repository files were not removed.")
+	return int(syncpkg.ExitOK)
 }
 
 func runInstall(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -153,6 +212,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  repowatch sync --repo /path/to/repo [--remote origin] [--branch main] [--timeout 30s] [--quiet]")
 	fmt.Fprintln(w, "  sudo repowatch install --repo /path/to/repo [--interval 30s] [--user USER] [--name NAME]")
+	fmt.Fprintln(w, "  repowatch list")
+	fmt.Fprintln(w, "  sudo repowatch uninstall NAME")
 }
 
 func defaultServiceUser() string {

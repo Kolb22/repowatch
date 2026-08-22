@@ -42,3 +42,15 @@ func TestRunInstallRequiresRepo(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
+
+func TestRunUninstallRequiresName(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"uninstall"}, &stdout, &stderr)
+	if code != int(syncpkg.ExitError) {
+		t.Fatalf("code = %d, want %d", code, syncpkg.ExitError)
+	}
+	if stderr.String() != "ERROR: repository name is required\nusage: sudo repowatch uninstall NAME\n" {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}

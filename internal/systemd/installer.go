@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -56,6 +57,12 @@ type Result struct {
 	Status      string
 }
 
+type Installation struct {
+	Name        string
+	ServiceName string
+	TimerName   string
+}
+
 type Installer struct {
 	runner  Runner
 	unitDir string
@@ -91,6 +98,84 @@ func (i *Installer) Install(ctx context.Context, opts Options) (Result, error) {
 	}
 
 	return Result{ServiceName: serviceName, TimerName: timerName, Status: status}, nil
+}
+
+func (i *Installer) List() ([]Installation, error) {
+	entries, err := os.ReadDir(i.unitDir)
+	if err != nil {
+		return nil, fmt.Errorf("read systemd unit directory: %w", err)
+	}
+
+	var installations []Installation
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, "repowatch-") || !strings.HasSuffix(name, ".timer") {
+			continue
+		}
+		unitName := strings.TrimSuffix(strings.TrimPrefix(name, "repowatch-"), ".timer")
+		if !validName.MatchString(unitName) {
+			continue
+		}
+		installations = append(installations, Installation{
+			Name:        unitName,
+			ServiceName: "repowatch-" + unitName + ".service",
+			TimerName:   name,
+		})
+	}
+
+	sort.Slice(installations, func(left, right int) bool {
+		return installations[left].Name < installations[right].Name
+	})
+	return installations, nil
+}
+
+func (i *Installer) Uninstall(ctx context.Context, name string) (Result, error) {
+	if !validName.MatchString(name) {
+		return Result{}, fmt.Errorf("invalid unit name %q", name)
+	}
+
+	serviceName := "repowatch-" + name + ".service"
+	timerName := "repowatch-" + name + ".timer"
+	servicePath := filepath.Join(i.unitDir, serviceName)
+	timerPath := filepath.Join(i.unitDir, timerName)
+	serviceExists, err := fileExists(servicePath)
+	if err != nil {
+		return Result{}, fmt.Errorf("inspect %s: %w", serviceName, err)
+	}
+	timerExists, err := fileExists(timerPath)
+	if err != nil {
+		return Result{}, fmt.Errorf("inspect %s: %w", timerName, err)
+	}
+	if !serviceExists && !timerExists {
+		return Result{}, fmt.Errorf("installation %q not found", name)
+	}
+
+	if timerExists {
+		if _, err := i.runner.Run(ctx, "systemctl", "disable", "--now", timerName); err != nil {
+			return Result{}, fmt.Errorf("disable %s: %w", timerName, err)
+		}
+	}
+	for _, unitPath := range []string{timerPath, servicePath} {
+		if err := os.Remove(unitPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return Result{}, fmt.Errorf("remove %s: %w", filepath.Base(unitPath), err)
+		}
+	}
+	if _, err := i.runner.Run(ctx, "systemctl", "daemon-reload"); err != nil {
+		return Result{}, fmt.Errorf("reload systemd: %w", err)
+	}
+
+	return Result{ServiceName: serviceName, TimerName: timerName}, nil
+}
+
+func fileExists(name string) (bool, error) {
+	_, err := os.Stat(name)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
 }
 
 func writeUnit(destination string, content string) (err error) {

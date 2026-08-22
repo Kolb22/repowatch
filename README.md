@@ -73,6 +73,24 @@ sudo systemctl status "repowatch-${REPO_NAME}.service"
 journalctl -u "repowatch-${REPO_NAME}.service" -n 30 --no-pager
 ```
 
+### Manage installations
+
+List every repository currently managed by RepoWatch:
+
+```bash
+repowatch list
+```
+
+Installations are independent, so you can run `repowatch install` once for each repository with a different branch, interval, or Linux user.
+
+Stop polling and remove an installation by repository name:
+
+```bash
+sudo repowatch uninstall my-app
+```
+
+This disables the timer and removes only the matching systemd service and timer. It never removes the repository or any files inside it.
+
 ## Manual Sync
 
 ```bash
@@ -150,5 +168,5 @@ internal/systemd
 
 ## Limitations
 
-RepoWatch currently supports one repository per invocation. It does not run as a daemon, receive webhooks, deploy applications, execute post-sync commands, or manage rollback.
+RepoWatch synchronizes one repository per service invocation. Multiple repositories are supported through independent systemd services and timers. It does not run as a daemon, receive webhooks, deploy applications, execute post-sync commands, or manage rollback.
 
