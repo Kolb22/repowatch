@@ -23,6 +23,14 @@ go build -o repowatch ./cmd/repowatch
 sudo install -m 0755 repowatch /usr/local/bin/repowatch
 ```
 
+Configure polling with one command:
+
+```bash
+sudo repowatch install --repo /opt/my-app --interval 30s
+```
+
+By default, the service runs as the user who invoked `sudo`. Use `--user` when the repository belongs to another Linux user.
+
 ## Usage
 
 ```bash
@@ -76,17 +84,19 @@ The Linux VM should have:
 - RepoWatch installed at `/usr/local/bin/repowatch`
 - the target repository already cloned
 - Git authentication configured through SSH keys or normal Git credentials
-- the example service and timer from `examples/systemd/`
+- systemd
 
-Install the units:
+Install and enable polling:
 
 ```bash
-sudo cp examples/systemd/repowatch-my-app.service /etc/systemd/system/
-sudo cp examples/systemd/repowatch-my-app.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now repowatch-my-app.timer
-systemctl list-timers repowatch-my-app.timer
+sudo repowatch install \
+  --repo /opt/my-app \
+  --remote origin \
+  --branch main \
+  --interval 30s
 ```
+
+`repowatch install` writes the service and timer to `/etc/systemd/system`, reloads systemd, enables and starts the timer, and prints its status.
 
 ## Development
 
@@ -108,6 +118,9 @@ internal/git
 
 internal/sync
     synchronization state machine
+
+internal/systemd
+    polling unit generation and installation
 ```
 
 ## Limitations
