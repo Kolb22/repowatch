@@ -7,8 +7,8 @@ It is built for a common workflow:
 ```text
 develop on Windows
 push to GitHub
-GitHub Actions connects to a Linux VM
-systemd starts RepoWatch
+systemd timer runs on the Linux VM
+RepoWatch checks the configured Git remote
 RepoWatch fast-forwards the local repo when safe
 ```
 
@@ -58,27 +58,17 @@ RepoWatch never runs destructive Git commands automatically. It does not reset, 
 
 When the local repository is dirty, ahead, or diverged, RepoWatch stops and returns a non-zero exit code.
 
-## Event-Driven VM Sync
+## Polling With systemd
 
-The recommended event-driven setup is:
+The recommended deployment setup is:
 
 ```text
-GitHub push to main
-    -> GitHub Actions
-    -> SSH to Linux VM
-    -> sudo systemctl start repowatch-my-app.service
+systemd timer (every 30 seconds)
+    -> repowatch-my-app.service
     -> repowatch sync
 ```
 
-This avoids polling. GitHub owns the event, systemd owns process supervision, and RepoWatch owns safe Git synchronization.
-
-Required GitHub repository secrets:
-
-| Secret | Description |
-|---|---|
-| `VM_HOST` | VM hostname or IP |
-| `VM_USER` | SSH user |
-| `VM_SSH_KEY` | Private SSH key allowed to connect to the VM |
+The Go CLI remains a one-shot command. `systemd` owns scheduling and process supervision, while RepoWatch owns safe Git synchronization. No inbound VM access or GitHub Actions secrets are required.
 
 The Linux VM should have:
 
@@ -86,7 +76,17 @@ The Linux VM should have:
 - RepoWatch installed at `/usr/local/bin/repowatch`
 - the target repository already cloned
 - Git authentication configured through SSH keys or normal Git credentials
-- a systemd service such as `examples/systemd/repowatch-my-app.service`
+- the example service and timer from `examples/systemd/`
+
+Install the units:
+
+```bash
+sudo cp examples/systemd/repowatch-my-app.service /etc/systemd/system/
+sudo cp examples/systemd/repowatch-my-app.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now repowatch-my-app.timer
+systemctl list-timers repowatch-my-app.timer
+```
 
 ## Development
 
@@ -112,5 +112,5 @@ internal/sync
 
 ## Limitations
 
-RepoWatch currently supports one repository per invocation. It does not run as a daemon, receive webhooks directly, deploy applications, execute post-sync commands, or manage rollback.
+RepoWatch currently supports one repository per invocation. It does not run as a daemon, receive webhooks, deploy applications, execute post-sync commands, or manage rollback.
 
